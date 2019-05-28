@@ -248,6 +248,10 @@ class UnknownAddress(object):
 
 
 class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
+    """
+    Generic object for holding a public key; does NOT represent any particular
+    output type but can be converted to one.
+    """
 
     @classmethod
     def from_pubkey(cls, pubkey):
@@ -338,6 +342,7 @@ class PublicKey(namedtuple("PublicKeyTuple", "pubkey")):
 
 
 class P2PKOutput(namedtuple("P2PKTuple", "pubkey")):
+    """ Output type for pay-to-pubkey scripts (<pubkey> OP_CHECKSIG) """
 
     @classmethod
     def from_pubkey(cls, pubkey):
