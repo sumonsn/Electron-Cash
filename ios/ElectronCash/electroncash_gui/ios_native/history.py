@@ -7,7 +7,7 @@
 from . import utils
 from . import gui
 from electroncash import WalletStorage, Wallet
-from electroncash.address import Address, PublicKey
+from electroncash.address import Address
 from electroncash.util import timestamp_to_datetime, PrintError, profiler
 from electroncash.i18n import _, language
 
@@ -347,9 +347,7 @@ class ContactsHistorySynchronizer(utils.PySig):
                 tx.deserialize()
                 ins = tx.inputs()
                 for x in ins:
-                    xa = x['address']
-                    if isinstance(xa, PublicKey):
-                        xa = xa.toAddress()
+                    xa = x.get('address')
                     if isinstance(xa, Address) and xa in c:
                         dct = seen.get(xa, dict())
                         wasEmpty = not dct

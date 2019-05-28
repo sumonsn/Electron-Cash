@@ -31,7 +31,7 @@ from .util import print_error, profiler
 from .caches import ExpiringCache
 
 from .bitcoin import *
-from .address import (PublicKey, P2PKOutput, Address, Script, ScriptOutput,
+from .address import (P2PKOutput, Address, Script, ScriptOutput,
                       hash160, UnknownAddress, OpCodes as opcodes)
 from . import schnorr
 from . import util
