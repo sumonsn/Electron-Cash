@@ -64,10 +64,10 @@ def _prepare_monkey_patching_of_python_ecdsa_internals_with_libsecp256k1():
         pubkey2 = _get_ptr_to_well_formed_pubkey_string_buffer_from_ecdsa_point(other)
         pubkey_sum = create_string_buffer(64)
 
-        pubkey1 = cast(pubkey1, POINTER(c_char_p))
-        pubkey2 = cast(pubkey2, POINTER(c_char_p))
-        ptr_to_array_of_pubkey_ptrs = (POINTER(c_char_p) * 2)(pubkey1, pubkey2)
-        r = secp256k1.secp256k1.secp256k1_ec_pubkey_combine(secp256k1.secp256k1.ctx, pubkey_sum, ptr_to_array_of_pubkey_ptrs, 2)
+        pubkey1 = cast(pubkey1, c_char_p)
+        pubkey2 = cast(pubkey2, c_char_p)
+        array_of_pubkey_ptrs = (c_char_p * 2)(pubkey1, pubkey2)
+        r = secp256k1.secp256k1.secp256k1_ec_pubkey_combine(secp256k1.secp256k1.ctx, pubkey_sum, array_of_pubkey_ptrs, 2)
         if not r:
             return point_at_infinity
         return _get_ecdsa_point_from_libsecp256k1_pubkey_object(pubkey_sum)
