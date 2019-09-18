@@ -982,22 +982,6 @@ class ECPrivkey(ECPubkey):
         secret_bytes = number_to_string(secret_scalar, CURVE_ORDER)
         return ECPrivkey(secret_bytes)
 
-    @classmethod
-    def from_arbitrary_size_secret(cls, privkey_bytes: bytes):
-        """This method is only for legacy reasons. Do not introduce new code that uses it.
-        Unlike the default constructor, this method does not require len(privkey_bytes) == 32,
-        and the secret does not need to be within the curve order either.
-        """
-        return ECPrivkey(cls.normalize_secret_bytes(privkey_bytes))
-
-    @classmethod
-    def normalize_secret_bytes(cls, privkey_bytes: bytes) -> bytes:
-        scalar = string_to_number(privkey_bytes) % CURVE_ORDER
-        if scalar == 0:
-            raise Exception('invalid EC private key scalar: zero')
-        privkey_32bytes = number_to_string(scalar, CURVE_ORDER)
-        return privkey_32bytes
-
     def __repr__(self):
         return f"<ECPrivkey {self.get_public_key_hex()}>"
 
