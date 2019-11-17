@@ -123,6 +123,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         self.rejected.connect(lambda: self.loop.exit(0))
         self.back_button.clicked.connect(lambda: self.loop.exit(1))
         self.next_button.clicked.connect(lambda: self.loop.exit(2))
+        self.slpbox = QCheckBox()
         outer_vbox = QVBoxLayout(self)
         inner_vbox = QVBoxLayout()
         inner_vbox.addWidget(self.title)
@@ -427,6 +428,26 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         but.clicked.connect(but_action)
 
 
+
+    def on_slp_support(self):
+        super().set_slp_wallet_choice(self.slpbox.isChecked())
+
+    def _add_extra_checkbox_to_layout(self, extra_checkbox, layout):
+        # currently this function is only implemented for slpbox checkbox.
+        # it can be generalized in the future by abstracting self.slpbox. 
+     
+        if (not isinstance(extra_checkbox, (list, tuple))
+                or not len(extra_checkbox) == 2):
+            return
+        box_title, box_action = extra_checkbox
+        hbox = QHBoxLayout()
+        hbox.setContentsMargins(12,24,12,12)
+        self.slpbox = QCheckBox(box_title)
+        hbox.addStretch(1)
+        hbox.addWidget(self.slpbox)
+        layout.addLayout(hbox)
+        self.slpbox.clicked.connect(box_action)
+
     @wizard_dialog
     def confirm_dialog(self, title, message, run_next, extra_button=None):
         self.confirm(message, title, extra_button=extra_button)
@@ -462,7 +483,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         t.join()
 
     @wizard_dialog
-    def choice_dialog(self, title, message, choices, run_next, extra_button=None):
+    def choice_dialog(self, title, message, choices, run_next, extra_button=None,extra_checkbox=None,slp_selection=False):
         c_values = [x[0] for x in choices]
         c_titles = [x[1] for x in choices]
         clayout = ChoicesLayout(message, c_titles)
@@ -470,11 +491,16 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         vbox.addLayout(clayout.layout())
         if extra_button:
             self._add_extra_button_to_layout(extra_button, vbox)
+        if extra_checkbox:
+            self._add_extra_checkbox_to_layout(extra_checkbox,vbox)    
         self.exec_layout(vbox, title)
         action = c_values[clayout.selected_index()]
-        return action
-
-
+        if self.slp_wallet_choice and slp_selection:
+            retval = "slptest_" + action
+        else:
+            retval = action
+        return retval
+        
     def query_choice(self, msg, choices):
         """called by hardware wallets"""
         clayout = ChoicesLayout(msg, choices)
@@ -482,7 +508,7 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         vbox.addLayout(clayout.layout())
         self.exec_layout(vbox, '')
         return clayout.selected_index()
-
+ 
     @wizard_dialog
     def line_dialog(self, run_next, title, message, default, test, warning=''):
         vbox = QVBoxLayout()
@@ -495,8 +521,8 @@ class InstallWizard(QDialog, MessageBoxMixin, BaseWizard):
         vbox.addWidget(line)
         vbox.addWidget(WWLabel(warning))
         self.exec_layout(vbox, title, next_enabled=test(default))
-        return ' '.join(line.text().split())
-
+        return ' '.join(line.text().split()) 
+        
     @wizard_dialog
     def show_xpub_dialog(self, xpub, run_next):
         msg = ' '.join([

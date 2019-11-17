@@ -2794,6 +2794,13 @@ class Standard_Wallet(Simple_Deterministic_Wallet):
         return Address.from_pubkey(pubkey)
 
 
+class Slp_Standard_Wallet(Standard_Wallet):
+    wallet_type = 'slptest_standard'
+    def __init__(self, storage):
+        storage.put('wallet_type', self.wallet_type)
+        super().__init__(storage)
+
+
 class Multisig_Wallet(Deterministic_Wallet):
     # generic m of n
     gap_limit = 20
@@ -2878,13 +2885,16 @@ class Multisig_Wallet(Deterministic_Wallet):
         return True
 
 
-wallet_types = ['standard', 'multisig', 'imported']
+
+#slptest_ wallet types to be renamed later before making available.  They are dev only/obscure wallet type.
+wallet_types = ['standard', 'multisig', 'imported', 'slptest_standard','slptest_multisig','slptest_imported']
 
 def register_wallet_type(category):
     wallet_types.append(category)
 
 wallet_constructors = {
     'standard': Standard_Wallet,
+    'slptest_standard': Slp_Standard_Wallet,
     'old': Standard_Wallet,
     'xpub': Standard_Wallet,
     'imported_privkey': ImportedPrivkeyWallet,

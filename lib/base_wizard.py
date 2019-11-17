@@ -24,14 +24,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import os
+import os 
 import sys
 import traceback
 from . import bitcoin
 from . import keystore
 from . import util
 from .keystore import bip44_derivation, bip44_derivation_145
-from .wallet import (ImportedAddressWallet, ImportedPrivkeyWallet,
+from .wallet import (ImportedAddressWallet, ImportedPrivkeyWallet, Slp_Standard_Wallet, 
                      Standard_Wallet, Multisig_Wallet, wallet_types)
 from .i18n import _
 
@@ -48,6 +48,7 @@ class BaseWizard(util.PrintError):
         self.keystores = []
         self.is_kivy = config.get('gui') == 'kivy'
         self.seed_type = None
+        self.slp_wallet_choice = False
 
     def run(self, *args):
         action = args[0]
@@ -86,17 +87,27 @@ class BaseWizard(util.PrintError):
             ('standard',  _("Standard wallet")),
             ('multisig',  _("Multi-signature wallet")),
             ('imported',  _("Import Bitcoin Cash addresses or private keys")),
+           
         ]
         choices = [pair for pair in wallet_kinds if pair[0] in wallet_types]
-        self.choice_dialog(title=title, message=message, choices=choices, run_next=self.on_wallet_type)
+        
+        ## Dev only SLP switch. Turn SLP wallet creation functionality on/off by commenting out a line of code
+        #slp_list = (_("Enable SLP tokens?"), self.on_slp_support)
+        slp_list = None 
+        ## ---end Dev only SLP switch
+        
+        self.choice_dialog(title=title, message=message, choices=choices, run_next=self.on_wallet_type,extra_checkbox = slp_list,slp_selection= True)
+
+    def set_slp_wallet_choice(self, choice):
+        self.slp_wallet_choice = choice
 
     def on_wallet_type(self, choice):
         self.wallet_type = choice
-        if choice == 'standard':
+        if choice == 'standard' or choice == 'slptest_standard':
             action = 'choose_keystore'
-        elif choice == 'multisig':
+        elif choice == 'multisig' or choice == 'slptest_multisig':
             action = 'choose_multisig'
-        elif choice == 'imported':
+        elif choice == 'imported' or choice == 'slptest_imported':
             action = 'import_addresses_or_keys'
         self.run(action)
 
@@ -109,7 +120,7 @@ class BaseWizard(util.PrintError):
         self.multisig_dialog(run_next=on_multisig)
 
     def choose_keystore(self):
-        assert self.wallet_type in ['standard', 'multisig']
+        assert self.wallet_type in ['standard', 'multisig','slptest_standard','slptest_multisig']
         i = len(self.keystores)
         title = _('Add cosigner') + ' (%d of %d)'%(i+1, self.n) if self.wallet_type=='multisig' else _('Keystore')
         if self.wallet_type =='standard' or i==0:
@@ -186,6 +197,9 @@ class BaseWizard(util.PrintError):
 
     def on_hw_wallet_support(self):
         ''' Derived class InstallWizard for Qt implements this '''
+        
+    def on_slp_support(self):
+        ''' Derived class InstallWizard for Qt implements this'''
 
     def choose_hw_device(self):
         title = _('Hardware Keystore')
@@ -349,7 +363,7 @@ class BaseWizard(util.PrintError):
         if has_xpub:
             from .bitcoin import xpub_type
             t1 = xpub_type(k.xpub)
-        if self.wallet_type == 'standard':
+        if self.wallet_type == 'standard' or self.wallet_type == 'slptest_standard':
             if has_xpub and t1 not in ['standard']:
                 self.show_error(_('Wrong key type') + ' %s'%t1)
                 self.run('choose_keystore')
@@ -389,6 +403,9 @@ class BaseWizard(util.PrintError):
         else:
             self.on_password(None, False)
 
+ 
+
+
     def on_password(self, password, encrypt):
         self.storage.set_password(password, encrypt)
         for k in self.keystores:
@@ -400,15 +417,21 @@ class BaseWizard(util.PrintError):
             self.storage.put('keystore', keys)
             self.wallet = Standard_Wallet(self.storage)
             self.run('create_addresses')
-        elif self.wallet_type == 'multisig':
+        elif self.wallet_type == 'slptest_standard':
+            self.storage.put('seed_type', self.seed_type)
+            keys = self.keystores[0].dump()
+            self.storage.put('keystore', keys)
+            self.wallet = Slp_Standard_Wallet(self.storage)
+            self.run('create_addresses')
+        elif self.wallet_type == 'multisig' or self.wallet_type == 'slptest_multisig':
             for i, k in enumerate(self.keystores):
                 self.storage.put('x%d/'%(i+1), k.dump())
             self.storage.write()
             self.wallet = Multisig_Wallet(self.storage)
             self.run('create_addresses')
-        elif self.wallet_type == 'imported':
+        elif self.wallet_type == 'imported' or self.wallet_type == 'slptest_imported':
             self.wallet.save_keystore()
-
+ 
     def show_xpub_and_add_cosigners(self, xpub):
         self.show_xpub_dialog(xpub=xpub, run_next=lambda x: self.run('choose_keystore'))
 
