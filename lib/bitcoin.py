@@ -818,7 +818,6 @@ def xprv_header(xtype, *, net=None):
     if net is None: net = networks.net
     return bfh("%08x" % net.XPRV_HEADERS[xtype])
 
-
 def xpub_header(xtype, *, net=None):
     if net is None: net = networks.net
     return bfh("%08x" % net.XPUB_HEADERS[xtype])
@@ -828,7 +827,6 @@ def serialize_xprv(xtype, c, k, depth=0, fingerprint=b'\x00'*4, child_number=b'\
     if net is None: net = networks.net
     xprv = xprv_header(xtype, net=net) + bytes([depth]) + fingerprint + child_number + c + bytes([0]) + k
     return EncodeBase58Check(xprv)
-
 
 def serialize_xpub(xtype, c, cK, depth=0, fingerprint=b'\x00'*4, child_number=b'\x00'*4, *, net=None):
     if net is None: net = networks.net
