@@ -11,7 +11,7 @@
 # and to permit persons to whom the Software is furnished to do so,
 # subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be
+# The above copyright notice and this permission notice shall begen
 # included in all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
@@ -564,7 +564,7 @@ class Commands:
         
         new_pubkey = bitcoin.CKD_pub(parent_pubkey,secret,0)[0]
         
-        use_uncompressed = True
+        use_uncompressed = False
         if use_uncompressed:
             pubkey_point = bitcoin.ser_to_point(new_pubkey)
             point_x=pubkey_point.x()
@@ -603,7 +603,7 @@ class Commands:
         checksum = "0000000000"
         retval = version + prefix_size  + scanpubkey + spendpubkey + expiry + checksum
         
-        print ("Your prefix starts with ",scanpubkey[0:4])
+        print ("Your prefix starts with ",scanpubkey[2:6])
         
         print ("HERE IS YOUR PAYCODE:")
         return retval
@@ -686,7 +686,7 @@ class Commands:
             txid=double_hash_tx.hex()
             
             # Check if we got a successful match.  If so, exit.
-            if txid[0:prefix_chars].upper() == paycode_field_scan_pubkey[0:prefix_chars].upper():
+            if txid[0:prefix_chars].upper() == paycode_field_scan_pubkey[2:prefix_chars+2].upper():
                 print ("Grinding successful after ",grind_nonce," iterations.")
                 print ("Transaction Id: ",txid)
                 final_raw_tx = raw_tx_string
