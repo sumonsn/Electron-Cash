@@ -26,3 +26,7 @@ class OPReturnTooLarge(SerializingError):
 # Other exceptions
 class NoMintingBatonFound(Error):
     pass
+
+class NotEnoughFundsSlp(Exception): pass
+
+class NotEnoughUnfrozenFundsSlp(Exception): pass

@@ -288,6 +288,13 @@ class Abstract_Wallet(PrintError, SPVDelegate):
         # Print debug message on finalization
         finalization_print_error(self, "[{}/{}] finalized".format(type(self).__name__, self.diagnostic_name()))
 
+    @property
+    def is_slp(self):
+        ''' Note that the various Slp_* classes explicitly write to storage
+        to set the proper wallet_type on construction unconditionally, so
+        this should always be valid for SLP wallets. '''
+        return "slp_" in self.storage.get('wallet_type', '')
+
     @classmethod
     def to_Address_dict(cls, d):
         '''Convert a dict of strings to a dict of Adddress objects.'''
@@ -433,6 +440,7 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             self.cashacct.save()
             if write:
                 self.storage.write()
+            self.slp.save()
 
     def clear_history(self):
         with self.lock:
@@ -860,13 +868,24 @@ class Abstract_Wallet(PrintError, SPVDelegate):
                 sent[txi] = height
         return received, sent
 
-    def get_addr_utxo(self, address):
+    ''' This method is updated for SLP to prevent tokens from being spent
+    in normal txn or txns with token_id other than the one specified '''
+    def get_addr_utxo(self, address, *, exclude_slp = True):
         coins, spent = self.get_addr_io(address)
         for txi in spent:
             coins.pop(txi)
             # cleanup/detect if the 'frozen coin' was spent and remove it from the frozen coin set
             self.frozen_coins.discard(txi)
             self.frozen_coins_tmp.discard(txi)
+
+        ''' SLP -- removes ALL SLP UTXOs that are either unrelated, or unvalidated '''
+        if exclude_slp:
+            with self.lock:
+                addrdict = self.slp._slp_txo.get(address,{})
+                for txid, txdict in addrdict.items():
+                    for idx, txo in txdict.items():
+                        coins.pop(txid + ":" + str(idx), None)
+
         out = {}
         for txo, v in coins.items():
             tx_height, value, is_cb = v
@@ -1686,7 +1705,7 @@ class Abstract_Wallet(PrintError, SPVDelegate):
     def dust_threshold(self):
         return dust_threshold(self.network)
 
-    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee=None, change_addr=None, sign_schnorr=None):
+    def make_unsigned_transaction(self, inputs, outputs, config, fixed_fee=None, change_addr=None, sign_schnorr=None, *, mandatory_coins=[]):
         ''' sign_schnorr flag controls whether to mark the tx as signing with
         schnorr or not. Specify either a bool, or set the flag to 'None' to use
         whatever the wallet is configured to use from the GUI '''
@@ -1708,6 +1727,9 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             raise BaseException('Dynamic fee estimates not available')
 
         for item in inputs:
+            self.add_input_info(item)
+
+        for item in mandatory_coins:
             self.add_input_info(item)
 
         # change address
@@ -1747,8 +1769,10 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             max_change = self.max_change_outputs if self.multiple_change else 1
             coin_chooser = coinchooser.CoinChooserPrivacy()
             tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
-                                      fee_estimator, self.dust_threshold(), sign_schnorr=sign_schnorr)
+                                      fee_estimator, self.dust_threshold(), sign_schnorr=sign_schnorr,
+                                      mandatory_coins=mandatory_coins)
         else:
+            inputs = mandatory_coins + inputs
             sendable = sum(map(lambda x:x['value'], inputs))
             _type, data, value = outputs[i_max]
             outputs[i_max] = (_type, data, 0)
@@ -1767,7 +1791,9 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             return
 
         # Sort the inputs and outputs deterministically
-        tx.BIP_LI01_sort()
+        if not mandatory_coins:
+            tx.BIP_LI01_sort()
+
         # Timelock tx to current height.
         locktime = self.get_local_height()
         if locktime == -1: # We have no local height data (no headers synced).
@@ -1878,9 +1904,20 @@ class Abstract_Wallet(PrintError, SPVDelegate):
                 self.print_error("removing transaction", tx_hash)
                 self.transactions.pop(tx_hash)
 
+    def _slp_callback_on_status(self, event, *args):
+        if self.is_slp and args[0] == 'connected':
+            self.slp.activate()
+
     def start_threads(self, network):
         self.network = network
         if self.network:
+            if self.is_slp:
+                # Note: it's important that SLP data structures are defined
+                # before the network (SPV/Synchronizer) callbacks are installed
+                # otherwise we may receive a tx from the network thread
+                # before SLP objects are properly constructed.
+                self.slp.activate()
+                self.network.register_callback(self._slp_callback_on_status, ['status'])
             self.start_pruned_txo_cleaner_thread()
             self.prepare_for_verifier()
             self.verifier = SPV(self.network, self)
@@ -1910,6 +1947,11 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             self.stop_pruned_txo_cleaner_thread()
             # Now no references to the syncronizer or verifier
             # remain so they will be GC-ed
+            if self.is_slp:
+                # NB: it's important this be done here after network
+                # callbacks are torn down in the above lines.
+                self.network.unregister_callback(self._slp_callback_on_status)
+                self.slp.deactivate()
             self.storage.put('stored_height', self.get_local_height())
         self.save_transactions()
         self.save_verified_tx()  # implicit cashacct.save
@@ -2143,9 +2185,21 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             return
         out = copy.copy(r)
         addr_text = addr.to_ui_string()
-        amount_text = format_satoshis(r['amount'])
-        out['URI'] = '{}:{}?amount={}'.format(networks.net.CASHADDR_PREFIX,
-                                              addr_text, amount_text)
+        if r.get('token_id', None):
+            amount_text = str(r['amount'])
+        else:
+            amount_text = format_satoshis(r['amount'])
+        if addr.FMT_UI == addr.FMT_CASHADDR:
+            out['URI'] = '{}:{}?amount={}'.format(networks.net.CASHADDR_PREFIX,
+                                                  addr_text, amount_text)
+        elif addr.FMT_UI == addr.FMT_SLPADDR:
+            if r.get('token_id', None):
+                token_id = r['token_id']
+                out['URI'] = '{}:{}?amount={}-{}'.format(networks.net.SLPADDR_PREFIX,
+                                                         addr_text, amount_text, token_id)
+            else:
+                out['URI'] = '{}:{}?amount={}'.format(networks.net.SLPADDR_PREFIX,
+                                                      addr_text, amount_text)
         status, conf = self.get_request_status(addr)
         out['status'] = status
         if conf is not None:
@@ -2199,7 +2253,7 @@ class Abstract_Wallet(PrintError, SPVDelegate):
         return status, conf
 
     def make_payment_request(self, addr, amount, message, expiration=None, *,
-                             op_return=None, op_return_raw=None, payment_url=None, index_url=None):
+                             op_return=None, op_return_raw=None, payment_url=None, token_id=None, index_url=None):
         assert isinstance(addr, Address)
         if op_return and op_return_raw:
             raise ValueError("both op_return and op_return_raw cannot be specified as arguments to make_payment_request")
@@ -2213,6 +2267,8 @@ class Abstract_Wallet(PrintError, SPVDelegate):
             'memo': message,
             'id': _id
         }
+        if token_id:
+            d['token_id'] = token_id
         if payment_url:
             d['payment_url'] = payment_url + "/" + _id
         if index_url:
@@ -2504,6 +2560,9 @@ class ImportedWalletBase(Simple_Wallet):
     def get_receiving_addresses(self):
         return self.get_addresses()
 
+    def get_change_addresses(self):
+        return []
+
     def delete_address(self, address):
         assert isinstance(address, Address)
         all_addrs = self.get_addresses()
@@ -2634,6 +2693,15 @@ class ImportedAddressWallet(ImportedWalletBase):
         txin['x_pubkeys'] = [x_pubkey]
         txin['signatures'] = [None]
 
+class Slp_ImportedAddressWallet(ImportedAddressWallet):
+    # Watch-only wallet of imported addresses
+
+    wallet_type = 'slp_imported_addr'
+
+    def __init__(self, storage):
+        self._sorted = None
+        storage.put('wallet_type', self.wallet_type)
+        super().__init__(storage)
 
 class ImportedPrivkeyWallet(ImportedWalletBase):
     # wallet made of imported private keys
@@ -2719,6 +2787,16 @@ class ImportedPrivkeyWallet(ImportedWalletBase):
         pubkey = PublicKey.from_string(pubkey)
         if pubkey in self.keystore.keypairs:
             return pubkey.address
+
+
+class Slp_ImportedPrivkeyWallet(ImportedPrivkeyWallet):
+    # wallet made of imported private keys
+
+    wallet_type = 'slp_imported_privkey'
+
+    def __init__(self, storage):
+        storage.put('wallet_type', self.wallet_type)
+        Abstract_Wallet.__init__(self, storage)
 
 
 class Deterministic_Wallet(Abstract_Wallet):
@@ -2893,6 +2971,13 @@ class Standard_Wallet(Simple_Deterministic_Wallet):
         return Address.from_pubkey(pubkey)
 
 
+class Slp_Standard_Wallet(Standard_Wallet):
+    wallet_type = 'slp_standard'
+    def __init__(self, storage):
+        storage.put('wallet_type', self.wallet_type)
+        super().__init__(storage)
+
+
 class Multisig_Wallet(Deterministic_Wallet):
     # generic m of n
     gap_limit = 20
@@ -2977,17 +3062,20 @@ class Multisig_Wallet(Deterministic_Wallet):
         return True
 
 
-wallet_types = ['standard', 'multisig', 'imported']
+wallet_types = ['standard', 'slp_standard', 'multisig', 'slp_multisig', 'imported', 'slp_imported']
 
 def register_wallet_type(category):
     wallet_types.append(category)
 
 wallet_constructors = {
     'standard': Standard_Wallet,
+    'slp_standard': Slp_Standard_Wallet,
     'old': Standard_Wallet,
     'xpub': Standard_Wallet,
     'imported_privkey': ImportedPrivkeyWallet,
+    'slp_imported_privkey': Slp_ImportedPrivkeyWallet,
     'imported_addr': ImportedAddressWallet,
+    'slp_imported_addr': Slp_ImportedAddressWallet,
 }
 
 def register_constructor(wallet_type, constructor):

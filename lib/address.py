@@ -485,6 +485,7 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
     FMT_CASHADDR = 0
     FMT_LEGACY = 1
     FMT_BITPAY = 2   # Supported temporarily only for compatibility
+    FMT_SLPADDR = 3
 
     _NUM_FMTS = 3  # <-- Be sure to update this if you add a format above!
 
@@ -511,6 +512,26 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         if string.upper() == string:
             prefix = prefix.upper()
         if not string.startswith(prefix + ':'):
+            string = ':'.join([prefix, string])
+        addr_prefix, kind, addr_hash = cashaddr.decode(string)
+        if addr_prefix != prefix:
+            raise AddressError('address has unexpected prefix {}'
+                               .format(addr_prefix))
+        if kind == cashaddr.PUBKEY_TYPE:
+            return cls(addr_hash, cls.ADDR_P2PKH)
+        elif kind == cashaddr.SCRIPT_TYPE:
+            return cls(addr_hash, cls.ADDR_P2SH)
+        else:
+            raise AddressError('address has unexpected kind {}'.format(kind))
+
+    @classmethod
+    def from_slpaddr_string(cls, string, *, net=None):
+        '''Construct from a slpaddress string.'''
+        if net is None: net = networks.net
+        prefix = net.SLPADDR_PREFIX
+        if string.upper() == string:
+            prefix = prefix.upper()
+        if ':' not in string:
             string = ':'.join([prefix, string])
         addr_prefix, kind, addr_hash = cashaddr.decode(string)
         if addr_prefix != prefix:
@@ -553,6 +574,23 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             raise AddressError('unknown version byte: {}'.format(verbyte))
 
         return cls(hash160, kind)
+
+    @classmethod
+    def prefix_from_address_string(cls, string, *, net=None):
+        '''Get address prefix from address string which may be missing the prefix.'''
+        if net is None: net = networks.net
+        if len(string) > 35:
+            try:
+                cls.from_slpaddr_string(string, net=net)
+                return net.SLPADDR_PREFIX
+            except:
+                pass
+            try:
+                cls.from_cashaddr_string(string, net=net)
+                return net.CASHADDR_PREFIX
+            except:
+                pass
+        return ''
 
     @classmethod
     def is_valid(cls, string, *, net=None):
@@ -606,6 +644,14 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             kind  = cashaddr.SCRIPT_TYPE
         return cashaddr.encode(net.CASHADDR_PREFIX, kind, self.hash160)
 
+    def to_slpaddr(self, *, net=None):
+        if net is None: net = networks.net
+        if self.kind == self.ADDR_P2PKH:
+            kind  = cashaddr.PUBKEY_TYPE
+        else:
+            kind  = cashaddr.SCRIPT_TYPE
+        return cashaddr.encode(net.SLPADDR_PREFIX, kind, self.hash160)
+
     def to_string(self, fmt, *, net=None):
         '''Converts to a string of the given format.'''
         if net is None: net = networks.net
@@ -621,6 +667,10 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
             cached = None
             if fmt == self.FMT_CASHADDR:
                 cached = self.to_cashaddr(net=net)
+                return cached
+
+            if fmt == self.FMT_SLPADDR:
+                cached = self.to_slpaddr(net=net)
                 return cached
 
             if fmt == self.FMT_LEGACY:
@@ -649,6 +699,8 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         text = self.to_string(fmt, net=net)
         if fmt == self.FMT_CASHADDR:
             text = ':'.join([net.CASHADDR_PREFIX, text])
+        if fmt == self.FMT_SLPADDR:
+            text = ':'.join([net.SLPADDR_PREFIX, text])
         return text
 
     def to_ui_string(self, *, net=None):
@@ -665,7 +717,10 @@ class Address(namedtuple("AddressTuple", "hash160 kind")):
         '''Returns a (scheme, path) pair for building a URI.'''
         if net is None: net = networks.net
         scheme = net.CASHADDR_PREFIX
+        scheme2 = net.SLPADDR_PREFIX
         path = self.to_ui_string(net=net)
+        if self.FMT_UI == self.FMT_SLPADDR:
+            scheme = scheme2
         return scheme, path
 
     def to_storage_string(self, *, net=None):
